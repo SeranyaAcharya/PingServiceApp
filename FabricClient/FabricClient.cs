@@ -10,18 +10,19 @@ using Microsoft.ServiceFabric.Services.Client;
 using Microsoft.ServiceFabric.Services.Communication.Client;
 using Microsoft.ServiceFabric.Services.Communication.Runtime;
 using Microsoft.ServiceFabric.Services.Runtime;
-
-
+using PingService.Controllers;
 
 namespace FabricClient
 {
 
     internal sealed class FabricClient : StatelessService
     {
-
+        private readonly MyApiController myApiController;
         public FabricClient(StatelessServiceContext context)
             : base(context)
-        { }
+        { this.myApiController = myApiController; }
+
+        
 
         private Random random = new Random();
         private static ServicePartitionResolver servicePartitionResolver = ServicePartitionResolver.GetDefault();
@@ -32,11 +33,17 @@ namespace FabricClient
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
+            var client = new System.Fabric.FabricClient(new string[] { "[cluster_endpoint]:[client_port]" });
             var filter = new ServiceNotificationFilterDescription()
             {
                 Name = new Uri("fabric:/PingServiceApp/PingService"),
                 MatchNamePrefix = true,
             };
+            client.ServiceManager.ServiceNotificationFilterMatched += (s, e) => OnNotification(client, e);
+
+            var filterId = client.ServiceManager.RegisterServiceNotificationFilterAsync(filter).Result;
+
+
             MyCommunicationClientFactory myCommunicationClientFactory = new MyCommunicationClientFactory();
             Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
             var myServicePartitionClient = new ServicePartitionClient<MyCommunicationClient>(
@@ -56,7 +63,7 @@ namespace FabricClient
                 foreach (var resolvedEndpoint in resolvedEndpoints)
                 {
                     httpClient.BaseAddress = new Uri(resolvedEndpoint.Address);
-                    HttpResponseMessage response = await httpClient.GetAsync("api/endpoint");
+                    HttpResponseMessage response = await httpClient.GetAsync(myApiController.ApiEndpoint);
 
                     if (response.IsSuccessStatusCode)
                     {
@@ -75,9 +82,11 @@ namespace FabricClient
                 int pingFrequency = GetPingFrequencyFromConfig();
                 await Task.Delay(TimeSpan.FromSeconds(pingFrequency), cancellationToken);
             }
+            client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();
+
         }
 
-        
+
         private long GetRandomPartitionKey()
         {
             int totalPartitions = GetTotalPartitionsFromConfig();
@@ -108,6 +117,16 @@ namespace FabricClient
 
             else return 5;
 
+        }
+
+        private static void OnNotification(System.Fabric.FabricClient client, EventArgs e)
+        {
+            var castedEventArgs = (System.Fabric.FabricClient.ServiceManagementClient.ServiceNotificationEventArgs)e;
+
+            var notification = castedEventArgs.Notification;
+
+            ResolvedServicePartition partition = servicePartitionResolver.ResolveAsync(new Uri("fabric:/PingServiceApp/PingService"), new ServicePartitionKey(), CancellationToken.None).GetAwaiter().GetResult();
+            resolvedEndpoints = partition.Endpoints.ToList();
         }
 
     }
@@ -166,4 +185,7 @@ namespace FabricClient
 //client kisse connection banaayega
 //ping service ka doubt
 //logical
+
+
+
 

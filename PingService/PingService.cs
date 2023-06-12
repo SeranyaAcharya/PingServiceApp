@@ -15,7 +15,12 @@ using System.Fabric.Description;
 using System.Globalization;
 using Microsoft.Owin.Hosting;
 using Microsoft.Owin;
-/*using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;*/
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
+using Microsoft.ServiceFabric.Data.Collections;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+
+
+
 
 namespace PingService
 {
@@ -24,11 +29,18 @@ namespace PingService
     /// </summary>
     internal sealed class PingService : StatefulService
     {
-        
+        private IReliableStateManager stateManager;
+        private int maxPortNum;
 
+        private Dictionary<Guid, int> portMap;
         public PingService(StatefulServiceContext context)
             : base(context)
-        { }
+        {
+            this.stateManager = this.StateManager;
+            this.maxPortNum = 49152;
+            this.portMap = new Dictionary<Guid, int>();
+        }
+        
 
         /// <summary>
         /// Optional override to create listeners (like tcp, http) for this service instance.
@@ -39,17 +51,28 @@ namespace PingService
             return new ServiceReplicaListener[]
             {
                 new ServiceReplicaListener(serviceContext =>
-                    new HttpSysCommunicationListener(serviceContext,"ServiceEndpoint", (_, listener) =>
+                    new KestrelCommunicationListener(serviceContext, (_, listener) =>
                     {
-                        string nodeName = serviceContext.NodeContext.NodeName;
-                        int nodeNum=0;
-                        for(int i = 5; i < nodeName.Length; i++)
-                        {
-                            nodeNum=10*nodeNum+(nodeName[i]-'0');
-                        }
-                        string port = 20000 + nodeNum + "";
+                        var portMap = this.portMap;
+                        Guid key= serviceContext.PartitionId;
+                        string url;
+                        if (portMap.ContainsKey(key))
+                            {
+                                int portNumber = portMap[key];
+                                url = $"http://+:{portNumber}";
+                            }
+                            else
+                            {
+                               maxPortNum++;
+                                int portNumber = maxPortNum;
+
+                                portMap.Add(key, portNumber);
+                                
+
+                                url = $"http://+:{portNumber}";
                         
-                        string url = $"http://+:{port}";
+                            }
+
 
                         ServiceEventSource.Current.ServiceMessage(serviceContext, $"Starting Kestrel on {url}");
 
@@ -59,7 +82,7 @@ namespace PingService
                                     .AddSingleton<StatefulServiceContext>(serviceContext)
                                     .AddSingleton<IReliableStateManager>(this.StateManager);
                         builder.WebHost
-                                    .UseHttpSys()
+                                    .UseKestrel()
                                     .UseContentRoot(Directory.GetCurrentDirectory())
                                     .UseServiceFabricIntegration(listener, ServiceFabricIntegrationOptions.UseUniqueServiceUrl)
                                     .UseUrls(url);
@@ -93,3 +116,9 @@ namespace PingService
         
     }
 }
+/*string nodeName = serviceContext.NodeContext.NodeName;
+int nodeNum = 0;
+for (int i = 5; i < nodeName.Length; i++)
+{
+    nodeNum = 10 * nodeNum + (nodeName[i] - '0');
+}*/

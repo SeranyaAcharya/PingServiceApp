@@ -5,6 +5,7 @@
     <Parameter Name="PingService_PartitionCount" DefaultValue="5" />
     <Parameter Name="PingService_TargetReplicaSetSize" DefaultValue="3" />
     <Parameter Name="PingService_ASPNETCORE_ENVIRONMENT" DefaultValue="" />
+    <Parameter Name="FabricClient_PingFrequency" DefaultValue="5" />
   </Parameters>
   <!-- Import the ServiceManifest from the ServicePackage. The ServiceManifestName and ServiceManifestVersion 
        should match the Name and Version attributes of the ServiceManifest element defined in the 
@@ -14,8 +15,10 @@
     <ConfigOverrides>
       <ConfigOverride Name="Config">
         <Settings>
-          <Section Name="MyConfigSection">
+          <Section Name="PingServiceConfig">
             <Parameter Name="PingFrequencyInSeconds" Value="[FabricClient_PingFrequency]" />
+          </Section>
+          <Section Name="PartitionCountConfig">
             <Parameter Name="NumOfPartitions" Value="[PingService_PartitionCount]" />
           </Section>
         </Settings>
@@ -29,6 +32,8 @@
         <Settings>
           <Section Name="PingServiceConfig">
             <Parameter Name="PingFrequencyInSeconds" Value="[FabricClient_PingFrequency]" />
+          </Section>
+          <Section Name="PartitionCountConfig">
             <Parameter Name="NumOfPartitions" Value="[PingService_PartitionCount]" />
           </Section>
         </Settings>
