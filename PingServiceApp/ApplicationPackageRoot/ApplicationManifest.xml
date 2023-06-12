@@ -1,9 +1,9 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <ApplicationManifest xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ApplicationTypeName="PingServiceAppType" ApplicationTypeVersion="1.0.0" xmlns="http://schemas.microsoft.com/2011/01/fabric">
   <Parameters>
-    <Parameter Name="PingService_MinReplicaSetSize" DefaultValue="3" />
+    <Parameter Name="PingService_MinReplicaSetSize" DefaultValue="5" />
     <Parameter Name="PingService_PartitionCount" DefaultValue="5" />
-    <Parameter Name="PingService_TargetReplicaSetSize" DefaultValue="3" />
+    <Parameter Name="PingService_TargetReplicaSetSize" DefaultValue="5" />
     <Parameter Name="PingService_ASPNETCORE_ENVIRONMENT" DefaultValue="" />
     <Parameter Name="FabricClient_PingFrequency" DefaultValue="5" />
   </Parameters>

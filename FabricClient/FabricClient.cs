@@ -28,7 +28,7 @@ namespace FabricClient
         private static ServicePartitionResolver servicePartitionResolver = ServicePartitionResolver.GetDefault();
         private static List<ResolvedServiceEndpoint> resolvedEndpoints = new List<ResolvedServiceEndpoint>();
 
-        
+
 
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
@@ -46,42 +46,49 @@ namespace FabricClient
 
             MyCommunicationClientFactory myCommunicationClientFactory = new MyCommunicationClientFactory();
             Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
-            var myServicePartitionClient = new ServicePartitionClient<MyCommunicationClient>(
-                myCommunicationClientFactory,
-                myServiceUri,
-                new Microsoft.ServiceFabric.Services.Client.ServicePartitionKey(GetRandomPartitionKey())); // Use random partition key
 
 
-            while (!cancellationToken.IsCancellationRequested)
+
+            for (int i = 0; i < GetTotalPartitionsFromConfig(); i++)
             {
-                ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
-
-                resolvedEndpoints.Clear();
-                resolvedEndpoints = partition.Endpoints.ToList();
-                bool allEndpointsStale = true;
-                HttpClient httpClient = new HttpClient();
-                foreach (var resolvedEndpoint in resolvedEndpoints)
+                var myServicePartitionClient = new ServicePartitionClient<MyCommunicationClient>(
+                    myCommunicationClientFactory,
+                    myServiceUri,
+                    new Microsoft.ServiceFabric.Services.Client.ServicePartitionKey(i));
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    httpClient.BaseAddress = new Uri(resolvedEndpoint.Address);
-                    HttpResponseMessage response = await httpClient.GetAsync(myApiController.ApiEndpoint);
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        allEndpointsStale = false;
-                        break; 
-                    }
-                }
-                httpClient.Dispose();
-                if (allEndpointsStale)
-                {
-                    partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
+                    ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
 
                     resolvedEndpoints.Clear();
                     resolvedEndpoints = partition.Endpoints.ToList();
+                    bool allEndpointsStale = true;
+                    HttpClient httpClient = new HttpClient();
+                    foreach (var resolvedEndpoint in resolvedEndpoints)
+                    {
+                        httpClient.BaseAddress = new Uri(resolvedEndpoint.Address);
+                        HttpResponseMessage response = await httpClient.GetAsync(myApiController.ApiEndpoint);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            allEndpointsStale = false;
+                            break;
+                        }
+                    }
+                    httpClient.Dispose();
+                    if (allEndpointsStale)
+                    {
+                        partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
+
+                        resolvedEndpoints.Clear();
+                        resolvedEndpoints = partition.Endpoints.ToList();
+                    }
+                    int pingFrequency = GetPingFrequencyFromConfig();
+                    await Task.Delay(TimeSpan.FromSeconds(pingFrequency), cancellationToken);
                 }
-                int pingFrequency = GetPingFrequencyFromConfig();
-                await Task.Delay(TimeSpan.FromSeconds(pingFrequency), cancellationToken);
+
             }
+
+        
             client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();
 
         }

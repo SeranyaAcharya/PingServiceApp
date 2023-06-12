@@ -30,17 +30,17 @@ namespace PingService
     internal sealed class PingService : StatefulService
     {
         private IReliableStateManager stateManager;
-        private int maxPortNum;
+        private static int maxPortNum;
 
-        private Dictionary<Guid, int> portMap;
+        private static Dictionary<Guid, int> portMap;
         public PingService(StatefulServiceContext context)
             : base(context)
         {
-            this.stateManager = this.StateManager;
-            this.maxPortNum = 49152;
-            this.portMap = new Dictionary<Guid, int>();
+            stateManager = this.StateManager;
+            maxPortNum = 49152;
+            portMap = new Dictionary<Guid, int>();
         }
-        
+
 
         /// <summary>
         /// Optional override to create listeners (like tcp, http) for this service instance.
@@ -53,7 +53,7 @@ namespace PingService
                 new ServiceReplicaListener(serviceContext =>
                     new KestrelCommunicationListener(serviceContext, (_, listener) =>
                     {
-                        var portMap = this.portMap;
+
                         Guid key= serviceContext.PartitionId;
                         string url;
                         if (portMap.ContainsKey(key))
@@ -67,10 +67,10 @@ namespace PingService
                                 int portNumber = maxPortNum;
 
                                 portMap.Add(key, portNumber);
-                                
+
 
                                 url = $"http://+:{portNumber}";
-                        
+
                             }
 
 
@@ -113,7 +113,7 @@ namespace PingService
             };
         }
 
-        
+
     }
 }
 /*string nodeName = serviceContext.NodeContext.NodeName;
