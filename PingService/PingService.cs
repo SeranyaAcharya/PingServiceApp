@@ -18,27 +18,43 @@ using Microsoft.Owin;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
 using Microsoft.ServiceFabric.Data.Collections;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
-
-
-
+using Newtonsoft.Json;
 
 namespace PingService
 {
     /// <summary>
     /// The FabricRuntime creates an instance of this class for each service type instance.
     /// </summary>
+    
     internal sealed class PingService : StatefulService
     {
         private IReliableStateManager stateManager;
-        private static int maxPortNum;
+        private int maxPortNum;
+        private static Dictionary<string, int> portMap;
+        // Get the temporary path using the environmental variable TEMP
+        private static string tempPath = Path.GetTempPath();
 
-        private static Dictionary<Guid, int> portMap;
+        // Combine the temporary path with the desired filename
+        private static string portMapFilePath = Path.Combine(tempPath, "portMap.json");
+        
+        
+
         public PingService(StatefulServiceContext context)
             : base(context)
         {
             stateManager = this.StateManager;
-            maxPortNum = 49152;
-            portMap = new Dictionary<Guid, int>();
+            // Load the port map from the file if it exists, otherwise create a new dictionary
+            if (File.Exists(portMapFilePath))
+            {
+                string json = File.ReadAllText(portMapFilePath);
+                portMap = JsonConvert.DeserializeObject<Dictionary<string, int>>(json);
+                
+            }
+            else
+            {
+                maxPortNum = 49152;
+                portMap = new Dictionary<string, int>();
+            }
         }
 
 
@@ -54,24 +70,35 @@ namespace PingService
                     new KestrelCommunicationListener(serviceContext, (_, listener) =>
                     {
 
-                        Guid key= serviceContext.PartitionId;
+                        string key= serviceContext.PartitionId.ToString();
                         string url;
                         if (portMap.ContainsKey(key))
                             {
                                 int portNumber = portMap[key];
                                 url = $"http://+:{portNumber}";
                             }
+                        else
+                        {
+                            if(portMap.Count == 0)
+                            {
+                                maxPortNum = 49152; // Starting port number when the map is empty
+                            }
                             else
                             {
-                               maxPortNum++;
+                                maxPortNum = portMap.Values.Max() + 1;
+                            }
                                 int portNumber = maxPortNum;
 
                                 portMap.Add(key, portNumber);
 
-
+                                // Save the updated port map to the file
+                            string json = JsonConvert.SerializeObject(portMap);
+                            var fileData = new PortMapFileData { PortMap = portMap, MaxPortNumber = maxPortNum };
+                            json = JsonConvert.SerializeObject(fileData);
+                            File.WriteAllText(portMapFilePath, json);
                                 url = $"http://+:{portNumber}";
 
-                            }
+                        }
 
 
                         ServiceEventSource.Current.ServiceMessage(serviceContext, $"Starting Kestrel on {url}");
@@ -112,9 +139,17 @@ namespace PingService
                     }), listenOnSecondary: true)
             };
         }
+        private class PortMapFileData
+        {
+            public Dictionary<string, int> PortMap { get; set; }
+            public int MaxPortNumber { get; set; }
+        }
+
+
 
 
     }
+
 }
 /*string nodeName = serviceContext.NodeContext.NodeName;
 int nodeNum = 0;

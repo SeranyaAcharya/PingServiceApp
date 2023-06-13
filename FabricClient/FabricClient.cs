@@ -29,7 +29,7 @@ namespace FabricClient
         private static List<ResolvedServiceEndpoint> resolvedEndpoints = new List<ResolvedServiceEndpoint>();
 
 
-
+        
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
