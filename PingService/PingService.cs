@@ -30,12 +30,13 @@ namespace PingService
     {
         private IReliableStateManager stateManager;
         private int maxPortNum;
-        private static Dictionary<string, int> portMap;
+        private static Dictionary<string, int>? portMap;
         // Get the temporary path using the environmental variable TEMP
         private static string tempPath = Path.GetTempPath();
 
         // Combine the temporary path with the desired filename
         private static string portMapFilePath = Path.Combine(tempPath, "portMap.json");
+        
         
         
 
@@ -47,8 +48,9 @@ namespace PingService
             if (File.Exists(portMapFilePath))
             {
                 string json = File.ReadAllText(portMapFilePath);
-                portMap = JsonConvert.DeserializeObject<Dictionary<string, int>>(json);
-                
+                PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(json);
+
+
             }
             else
             {
