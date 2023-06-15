@@ -30,33 +30,35 @@ namespace PingService
     {
         private IReliableStateManager stateManager;
         private int maxPortNum;
-        private static Dictionary<string, int>? portMap;
+        private static Dictionary<string, int> portMap;
         // Get the temporary path using the environmental variable TEMP
         private static string tempPath = Path.GetTempPath();
-
+        private static string key;
+        private static string url;
         // Combine the temporary path with the desired filename
         private static string portMapFilePath = Path.Combine(tempPath, "portMap.json");
-        
-        
-        
+        private static readonly object portMapLock = new object();
+
+
 
         public PingService(StatefulServiceContext context)
             : base(context)
         {
             stateManager = this.StateManager;
             // Load the port map from the file if it exists, otherwise create a new dictionary
-            if (File.Exists(portMapFilePath))
+            /*if (File.Exists(portMapFilePath))
             {
                 string json = File.ReadAllText(portMapFilePath);
                 PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(json);
-
+                portMap = fileData.PortMap;
 
             }
             else
             {
                 maxPortNum = 49152;
                 portMap = new Dictionary<string, int>();
-            }
+            }*/
+            LoadPortMapFromFile();
         }
 
 
@@ -72,34 +74,19 @@ namespace PingService
                     new KestrelCommunicationListener(serviceContext, (_, listener) =>
                     {
 
-                        string key= serviceContext.PartitionId.ToString();
-                        string url;
-                        if (portMap.ContainsKey(key))
+                        key= serviceContext.PartitionId.ToString();
+
+                        lock (portMapLock)
+                        {
+                            if (portMap.ContainsKey(key))
                             {
                                 int portNumber = portMap[key];
                                 url = $"http://+:{portNumber}";
                             }
-                        else
-                        {
-                            if(portMap.Count == 0)
-                            {
-                                maxPortNum = 49152; // Starting port number when the map is empty
-                            }
                             else
                             {
-                                maxPortNum = portMap.Values.Max() + 1;
+                                SavePortMapToFile();
                             }
-                                int portNumber = maxPortNum;
-
-                                portMap.Add(key, portNumber);
-
-                                // Save the updated port map to the file
-                            string json = JsonConvert.SerializeObject(portMap);
-                            var fileData = new PortMapFileData { PortMap = portMap, MaxPortNumber = maxPortNum };
-                            json = JsonConvert.SerializeObject(fileData);
-                            File.WriteAllText(portMapFilePath, json);
-                                url = $"http://+:{portNumber}";
-
                         }
 
 
@@ -140,6 +127,64 @@ namespace PingService
 
                     }), listenOnSecondary: true)
             };
+        }
+
+        private void LoadPortMapFromFile()
+        {
+            lock (portMapLock)
+            {
+                if (File.Exists(portMapFilePath))
+                {
+                    string json;
+                    using (var fileStream = new FileStream(portMapFilePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        using (var reader = new StreamReader(fileStream))
+                        {
+                            json = reader.ReadToEnd();
+                        }
+                    }
+                    PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(json);
+                    portMap = fileData.PortMap;
+                    maxPortNum = fileData.MaxPortNumber;
+                }
+                else
+                {
+                    maxPortNum = 49152;
+                    portMap = new Dictionary<string, int>();
+                }
+            }
+        }
+
+        private void SavePortMapToFile()
+        {
+            lock (portMapLock)
+            {
+                if (portMap.Count == 0)
+                {
+                    maxPortNum = 49152;
+                }
+                else
+                {
+                    maxPortNum = portMap.Values.Max() + 1;
+                }
+
+                int portNumber = maxPortNum;
+
+                portMap.Add(key, portNumber);
+
+                var fileData = new PortMapFileData { PortMap = portMap, MaxPortNumber = maxPortNum };
+                string json = JsonConvert.SerializeObject(fileData);
+
+                using (var fileStream = new FileStream(portMapFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    using (var writer = new StreamWriter(fileStream))
+                    {
+                        writer.Write(json);
+                    }
+                }
+
+                url = $"http://+:{portNumber}";
+            }
         }
         private class PortMapFileData
         {
