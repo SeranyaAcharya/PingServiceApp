@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Fabric;
 using System.Fabric.Description;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -11,8 +12,6 @@ using Microsoft.ServiceFabric.Services.Communication.Client;
 using Microsoft.ServiceFabric.Services.Communication.Runtime;
 using Microsoft.ServiceFabric.Services.Runtime;
 using PingService.Controllers;
-
-
 
 namespace FabricClient
 {
@@ -24,73 +23,80 @@ namespace FabricClient
             : base(context)
         { this.myApiController = myApiController; }
 
-        
-
         private Random random = new Random();
         private static ServicePartitionResolver servicePartitionResolver = ServicePartitionResolver.GetDefault();
         private static List<ResolvedServiceEndpoint> resolvedEndpoints = new List<ResolvedServiceEndpoint>();
 
-
-        
-
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
-            var client = new System.Fabric.FabricClient(new string[] { "[cluster_endpoint]:[client_port]" });
+            var client = new System.Fabric.FabricClient();
+            Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
+            long currPartitionKey = GetRandomPartitionKey();
+            
+            
+            ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(currPartitionKey),
+                        CancellationToken.None);
+            resolvedEndpoints = partition.Endpoints.ToList();
+            
             var filter = new ServiceNotificationFilterDescription()
             {
                 Name = new Uri("fabric:/PingServiceApp/PingService"),
                 MatchNamePrefix = true,
             };
-            client.ServiceManager.ServiceNotificationFilterMatched += (s, e) => OnNotification(client, e);
-
-            var filterId = client.ServiceManager.RegisterServiceNotificationFilterAsync(filter).Result;
-
-
-            MyCommunicationClientFactory myCommunicationClientFactory = new MyCommunicationClientFactory();
-            Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
-
-
-
-            for (int i = 0; i < GetTotalPartitionsFromConfig(); i++)
+            client.ServiceManager.ServiceNotificationFilterMatched += async (s, e) =>
             {
-                var myServicePartitionClient = new ServicePartitionClient<MyCommunicationClient>(
-                    myCommunicationClientFactory,
-                    myServiceUri,
-                    new Microsoft.ServiceFabric.Services.Client.ServicePartitionKey(i));
-                while (!cancellationToken.IsCancellationRequested)
+                var castedEventArgs = (System.Fabric.FabricClient.ServiceManagementClient.ServiceNotificationEventArgs)e;
+
+                var notification = castedEventArgs.Notification;
+                Console.WriteLine(
+                    "[{0}] received notification for service '{1}'",
+                    DateTime.UtcNow,
+                    notification.ServiceName);
+
+                partition = await servicePartitionResolver.ResolveAsync(partition,
+                            CancellationToken.None);
+
+                resolvedEndpoints.Clear();
+                resolvedEndpoints = partition.Endpoints.ToList();
+
+            };
+            int pingFrequency = GetPingFrequencyFromConfig();
+            TimeSpan delayBetweenPings = TimeSpan.FromSeconds(1.0 / pingFrequency);
+            var filterId = client.ServiceManager.RegisterServiceNotificationFilterAsync(filter).Result;
+            HttpClient httpClient = new HttpClient();
+
+            while (!cancellationToken.IsCancellationRequested) 
+            {
+                bool allEndpointsStale = false;
+                foreach (var resolvedEndpoint in resolvedEndpoints)
                 {
-                    ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
-
-                    resolvedEndpoints.Clear();
-                    resolvedEndpoints = partition.Endpoints.ToList();
-                    bool allEndpointsStale = true;
-                    HttpClient httpClient = new HttpClient();
-                    foreach (var resolvedEndpoint in resolvedEndpoints)
+                    httpClient.BaseAddress = new Uri(resolvedEndpoint.Address);
+                    while (true)
                     {
-                        httpClient.BaseAddress = new Uri(resolvedEndpoint.Address);
-                        HttpResponseMessage response = await httpClient.GetAsync(myApiController.ApiEndpoint);
-
-                        if (response.IsSuccessStatusCode)
+                        try
                         {
-                            allEndpointsStale = false;
+                            HttpResponseMessage response = await httpClient.GetAsync(myApiController.ApiEndpoint);
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
                             break;
                         }
-                    }
-                    httpClient.Dispose();
-                    if (allEndpointsStale)
-                    {
-                        partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(), CancellationToken.None);
-
-                        resolvedEndpoints.Clear();
-                        resolvedEndpoints = partition.Endpoints.ToList();
-                    }
-                    int pingFrequency = GetPingFrequencyFromConfig();
-                    await Task.Delay(TimeSpan.FromSeconds(pingFrequency), cancellationToken);
+                        await Task.Delay(delayBetweenPings, cancellationToken);
+                    }   
                 }
+                allEndpointsStale = true;
+                partition = await servicePartitionResolver.ResolveAsync(partition,
+                            CancellationToken.None);
 
+                resolvedEndpoints.Clear();
+                resolvedEndpoints = partition.Endpoints.ToList();
             }
+            httpClient.Dispose();
 
-        
             client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();
 
         }
@@ -98,23 +104,12 @@ namespace FabricClient
 
         private long GetRandomPartitionKey()
         {
-            int totalPartitions = GetTotalPartitionsFromConfig();
-            int randomPartitionIndex = random.Next(0, totalPartitions);
+            
+            long randomPartitionIndex = random.NextInt64(-9223372036854775808, 9223372036854775807);
 
             return randomPartitionIndex;
         }
 
-        private int GetTotalPartitionsFromConfig()
-        {
-            CodePackageActivationContext context = FabricRuntime.GetActivationContext();
-            var configSettings = context.GetConfigurationPackageObject("Config").Settings;
-            var data = configSettings.Sections["PartitionCountConfig"];
-            string partitionCountValue = data.Parameters["NumOfPartitions"].Value;
-
-            if (int.TryParse(partitionCountValue, out int partitionCount)) { return partitionCount; }
-
-            else return 10;
-        }
         private static int GetPingFrequencyFromConfig()
         {
             CodePackageActivationContext context = FabricRuntime.GetActivationContext();
@@ -128,72 +123,9 @@ namespace FabricClient
 
         }
 
-        private static void OnNotification(System.Fabric.FabricClient client, EventArgs e)
-        {
-            var castedEventArgs = (System.Fabric.FabricClient.ServiceManagementClient.ServiceNotificationEventArgs)e;
-
-            var notification = castedEventArgs.Notification;
-
-            ResolvedServicePartition partition = servicePartitionResolver.ResolveAsync(new Uri("fabric:/PingServiceApp/PingService"), new ServicePartitionKey(), CancellationToken.None).GetAwaiter().GetResult();
-            resolvedEndpoints = partition.Endpoints.ToList();
-        }
-
     }
 
 }
-/*private int GetPingFrequencyFromConfig()
-    {
-        // Read ping frequency from the configuration file
-        // Modify this section based on your specific configuration structure and logic
-        // Example for reading from settings.xml:
-        XDocument configXml = XDocument.Load("settings.xml");
-        XNamespace ns = "http://schemas.microsoft.com/2011/01/fabric";
-        XElement pingFrequencyElement = configXml.Root?.Element(ns + "Section")?
-            .Elements(ns + "Parameter")
-            .FirstOrDefault(p => p.Attribute("Name")?.Value == "PingFrequencyInSeconds");
-
-        if (pingFrequencyElement != null && int.TryParse(pingFrequencyElement.Attribute("Value")?.Value, out int pingFrequency))
-        {
-            return pingFrequency;
-        }
-        else
-        {
-            // Handle invalid or missing configuration value
-            // Return a default value or throw an exception
-            *//*return DefaultPingFrequency;*//*
-            return 5;
-        }
-
-    }*/
-
-/*protected override async Task RunAsync(CancellationToken cancellationToken)
-        {
-            
-            //loop mein to hit the target service(ping frequency)
-            MyCommunicationClientFactory myCommunicationClientFactory;
-            myCommunicationClientFactory = new MyCommunicationClientFactory();
-            Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
-
-
-            var myServicePartitionClient = new ServicePartitionClient<MyCommunicationClient>(
-                myCommunicationClientFactory,
-                myServiceUri,
-                new Microsoft.ServiceFabric.Services.Client.ServicePartitionKey(0L));//use rndom
-
-            var result = await myServicePartitionClient.InvokeWithRetryAsync(async (client) =>
-            {
-                // Communicate with the service using the client.//http client object and invoke an api to connect
-            },
-               CancellationToken.None);
-
-            //to read ping frequency
-            //settings.xml -->config driven model read--> for flexibility 
-
-        }*/
-//Doubt: var result kaha aayega
-//client kisse connection banaayega
-//ping service ka doubt
-//logical
 
 
 

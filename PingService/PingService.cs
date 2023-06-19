@@ -45,27 +45,9 @@ namespace PingService
             : base(context)
         {
             stateManager = this.StateManager;
-            // Load the port map from the file if it exists, otherwise create a new dictionary
-            /*if (File.Exists(portMapFilePath))
-            {
-                string json = File.ReadAllText(portMapFilePath);
-                PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(json);
-                portMap = fileData.PortMap;
-
-            }
-            else
-            {
-                maxPortNum = 49152;
-                portMap = new Dictionary<string, int>();
-            }*/
             LoadPortMapFromFile();
         }
 
-
-        /// <summary>
-        /// Optional override to create listeners (like tcp, http) for this service instance.
-        /// </summary>
-        /// <returns>The collection of listeners.</returns>
         protected override IEnumerable<ServiceReplicaListener> CreateServiceReplicaListeners()
         {
             return new ServiceReplicaListener[]
@@ -73,9 +55,8 @@ namespace PingService
                 new ServiceReplicaListener(serviceContext =>
                     new KestrelCommunicationListener(serviceContext, (_, listener) =>
                     {
-
-                        key= serviceContext.PartitionId.ToString();
-
+                        key= serviceContext.PartitionId.ToString() + "_" + serviceContext.ReplicaOrInstanceId.ToString();
+                        
                         lock (portMapLock)
                         {
                             if (portMap.ContainsKey(key))
@@ -89,7 +70,6 @@ namespace PingService
                             }
                         }
 
-
                         ServiceEventSource.Current.ServiceMessage(serviceContext, $"Starting Kestrel on {url}");
 
                         var builder = WebApplication.CreateBuilder();
@@ -100,8 +80,8 @@ namespace PingService
                         builder.WebHost
                                     .UseKestrel()
                                     .UseContentRoot(Directory.GetCurrentDirectory())
-                                    .UseServiceFabricIntegration(listener, ServiceFabricIntegrationOptions.UseUniqueServiceUrl)
                                     .UseUrls(url);
+
                         
                         // Add services to the container.
                         builder.Services.AddControllersWithViews();
@@ -191,16 +171,6 @@ namespace PingService
             public Dictionary<string, int> PortMap { get; set; }
             public int MaxPortNumber { get; set; }
         }
-
-
-
-
     }
 
 }
-/*string nodeName = serviceContext.NodeContext.NodeName;
-int nodeNum = 0;
-for (int i = 5; i < nodeName.Length; i++)
-{
-    nodeNum = 10 * nodeNum + (nodeName[i] - '0');
-}*/
