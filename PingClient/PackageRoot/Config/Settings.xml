@@ -6,8 +6,7 @@
     <Parameter Name="MyParameter" Value="Value1" />
   </Section>
   -->
-
-	<Section Name="PartitionCountConfig">
-		<Parameter Name="NumOfPartitions" Value="1" />
+	<Section Name="PingClientConfig">
+		<Parameter Name="PingFrequencyInSeconds" Value="5" />
 	</Section>
 </Settings>

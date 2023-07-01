@@ -1,23 +1,23 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <ApplicationManifest xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ApplicationTypeName="PingServiceAppType" ApplicationTypeVersion="1.0.0" xmlns="http://schemas.microsoft.com/2011/01/fabric">
   <Parameters>
-    <Parameter Name="PingService_MinReplicaSetSize" DefaultValue="5" />
-    <Parameter Name="PingService_PartitionCount" DefaultValue="5" />
-    <Parameter Name="PingService_TargetReplicaSetSize" DefaultValue="5" />
+    <Parameter Name="PingClient_InstanceCount" DefaultValue="1" />
+    <Parameter Name="PingService_MinReplicaSetSize" DefaultValue="3" />
+    <Parameter Name="PingService_PartitionCount" DefaultValue="4" />
+    <Parameter Name="PingService_TargetReplicaSetSize" DefaultValue="3" />
     <Parameter Name="PingService_ASPNETCORE_ENVIRONMENT" DefaultValue="" />
-    <Parameter Name="FabricClient_PingFrequency" DefaultValue="5" />
-    <Parameter Name="FabricClient_InstanceCount" DefaultValue="-1" />
+    <Parameter Name="PingClient_PingFrequency" DefaultValue="5" />
   </Parameters>
   <!-- Import the ServiceManifest from the ServicePackage. The ServiceManifestName and ServiceManifestVersion 
        should match the Name and Version attributes of the ServiceManifest element defined in the 
        ServiceManifest.xml file. -->
   <ServiceManifestImport>
-    <ServiceManifestRef ServiceManifestName="FabricClientPkg" ServiceManifestVersion="1.0.0" />
+    <ServiceManifestRef ServiceManifestName="PingClientPkg" ServiceManifestVersion="1.0.0" />
     <ConfigOverrides>
       <ConfigOverride Name="Config">
         <Settings>
-          <Section Name="FabricClientConfig">
-            <Parameter Name="PingFrequencyInSeconds" Value="[FabricClient_PingFrequency]" />
+          <Section Name="PingClientConfig">
+            <Parameter Name="PingFrequencyInSeconds" Value="[PingClient_PingFrequency]" />
           </Section>
         </Settings>
       </ConfigOverride>
@@ -44,13 +44,15 @@
          ServiceFabric PowerShell module.
 
          The attribute ServiceTypeName below must match the name defined in the imported ServiceManifest.xml file. -->
-    <Service Name="PingService" ServicePackageActivationMode="SharedProcess">
+    <Service Name="PingClient" ServicePackageActivationMode="ExclusiveProcess">
+      <StatelessService ServiceTypeName="PingClientType" InstanceCount="[PingClient_InstanceCount]">
+        <SingletonPartition />
+      </StatelessService>
+    </Service>
+    <Service Name="PingService">
       <StatefulService ServiceTypeName="PingServiceType" TargetReplicaSetSize="[PingService_TargetReplicaSetSize]" MinReplicaSetSize="[PingService_MinReplicaSetSize]">
         <UniformInt64Partition PartitionCount="[PingService_PartitionCount]" LowKey="-9223372036854775808" HighKey="9223372036854775807" />
       </StatefulService>
-    </Service>
-    <Service Name="FabricClient" ServicePackageActivationMode="SharedProcess">
-      <StatelessService ServiceTypeName="FabricClientType" InstanceCount="[FabricClient_InstanceCount]" />
     </Service>
   </DefaultServices>
 </ApplicationManifest>

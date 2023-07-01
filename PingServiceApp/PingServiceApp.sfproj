@@ -32,7 +32,7 @@
     <Content Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\FabricClient\FabricClient.csproj" />
+    <ProjectReference Include="..\PingClient\PingClient.csproj" />
     <ProjectReference Include="..\PingService\PingService.csproj" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
