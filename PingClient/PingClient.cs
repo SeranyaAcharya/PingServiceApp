@@ -22,7 +22,6 @@ namespace PingClient
 
     internal sealed class PingClient : StatelessService
     {
-
         public PingClient(StatelessServiceContext context)
             : base(context)
         { }
@@ -36,12 +35,6 @@ namespace PingClient
             var client = new System.Fabric.FabricClient();
             Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
             long currPartitionKey = GetRandomPartitionKey();
-
-
-            ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(currPartitionKey),
-                        CancellationToken.None);
-            resolvedEndpoints = partition.Endpoints.ToList();
-
             var filter = new ServiceNotificationFilterDescription()
             {
                 Name = new Uri("fabric:/PingServiceApp/PingService"),
@@ -64,11 +57,13 @@ namespace PingClient
             HttpClient httpClient = new HttpClient();
 
             /*while (!cancellationToken.IsCancellationRequested)*/
-            {
-                bool allEndpointsStale = false;
+            //{
+                ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(currPartitionKey),
+                        CancellationToken.None);//does it give you empty list
+                resolvedEndpoints = partition.Endpoints.ToList();
+                bool allEndpointsStale = true;
                 foreach (var resolvedEndpoint in resolvedEndpoints)
                 {
-
                     string httpEndpoint = "";
                     try
                     {
@@ -94,37 +89,37 @@ namespace PingClient
                         // Handle JSON parsing error
                     }
 
-
-
-                    bool flag = false;
-                    while (!flag)
+                    try
                     {
-                        try
-                        {
+                    //what if null
+                    string s = httpEndpoint;
+                        HttpResponseMessage response = await httpClient.GetAsync(httpEndpoint);
 
-                            string s = httpEndpoint + "/fabric:/PingServiceApp/PingService";
-                            HttpResponseMessage response = await httpClient.GetAsync(httpEndpoint + "/fabric:/PingServiceApp/PingService");
-
-                            if (!response.IsSuccessStatusCode)
-                            {
-                                break;
-                            }
-                        }
-                        catch (Exception ex)
+                        if (!response.IsSuccessStatusCode)
                         {
+                            allEndpointsStale = false;
                             break;
                         }
-                        await Task.Delay(delayBetweenPings, cancellationToken);
-                        flag = true;
                     }
+                    catch (Exception ex)
+                    {
+                        //which exception
+                        break;
+                    }
+
                 }
-                allEndpointsStale = true;
-                partition = await servicePartitionResolver.ResolveAsync(partition,
+                //if partitions are getting destabilised then also forced refresh
+                /*if(allEndpointsStale)*/
+                /*{*/
+                   /* partition = await servicePartitionResolver.ResolveAsync(partition,
                             CancellationToken.None);
 
-                resolvedEndpoints.Clear();
-                resolvedEndpoints = partition.Endpoints.ToList();
-            }
+                    resolvedEndpoints.Clear();
+                    resolvedEndpoints = partition.Endpoints.ToList();*/
+                //}
+                await Task.Delay(delayBetweenPings, cancellationToken);
+
+            //}
             httpClient.Dispose();
 
             client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();
@@ -149,7 +144,7 @@ namespace PingClient
 
             if (int.TryParse(pingFrequencyValue, out int pingFrequency)) { return pingFrequency; }
 
-            else return 5;
+            else return 1;
 
         }
 

@@ -45,7 +45,7 @@ namespace PingService
             : base(context)
         {
             stateManager = this.StateManager;
-            LoadPortMapFromFile();
+           // LoadPortMapFromFile();
         }
 
         protected override IEnumerable<ServiceReplicaListener> CreateServiceReplicaListeners()
@@ -53,11 +53,11 @@ namespace PingService
             return new ServiceReplicaListener[]
             {
                 new ServiceReplicaListener(serviceContext =>
-                    new KestrelCommunicationListener(serviceContext, (_, listener) =>
+                    new KestrelCommunicationListener(serviceContext, (tempUrl, listener) =>
                     {
-                        key= serviceContext.PartitionId.ToString() + "_" + serviceContext.ReplicaOrInstanceId.ToString();
-                        
-                        lock (portMapLock)
+                        key= serviceContext.PartitionId.ToString();
+
+                     /*   lock (portMapLock)
                         {
                             if (portMap.ContainsKey(key))
                             {
@@ -68,7 +68,7 @@ namespace PingService
                             {
                                 SavePortMapToFile();
                             }
-                        }
+                        }*/
 
                         ServiceEventSource.Current.ServiceMessage(serviceContext, $"Starting Kestrel on {url}");
 
@@ -80,7 +80,7 @@ namespace PingService
                         builder.WebHost
                                     .UseKestrel()
                                     .UseContentRoot(Directory.GetCurrentDirectory())
-                                    .UseUrls(url);
+                                    .UseUrls(SavePortMapToFile($"{serviceContext.PartitionId.ToString()}_{serviceContext.ReplicaId.ToString()}"));
 
                         
                         // Add services to the container.
@@ -135,41 +135,47 @@ namespace PingService
             }
         }
 
-        private void SavePortMapToFile()
+        private string SavePortMapToFile(string key)
         {
-            lock (portMapLock)
+            int port = 49152;
+            lock(portMapLock)
             {
-                if (portMap.Count == 0)
+                using (FileStream fileStream = new FileStream(portMapFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
                 {
-                    maxPortNum = 49152;
-                }
-                else
-                {
-                    maxPortNum = portMap.Values.Max() + 1;
-                }
-
-                int portNumber = maxPortNum;
-
-                portMap.Add(key, portNumber);
-
-                var fileData = new PortMapFileData { PortMap = portMap, MaxPortNumber = maxPortNum };
-                string json = JsonConvert.SerializeObject(fileData);
-
-                using (var fileStream = new FileStream(portMapFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    using (var writer = new StreamWriter(fileStream))
                     {
-                        writer.Write(json);
+                        fileStream.Lock(0, fileStream.Length);
+                        // Acquire an exclusive lock on the file
+                        // Read the contents of the file
+                        string contents = File.ReadAllText(portMapFilePath);
+                        PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(contents);
+                        if (fileData.PortMap.ContainsKey(key))
+                        {
+                            port = fileData.PortMap[key];
+                        }
+                        else
+                        {
+                            fileData.PortMap[key] = fileData.MaxPortNumber + 1;
+                            fileData.MaxPortNumber = fileData.MaxPortNumber + 1;
+                            port = fileData.PortMap[key];
+                        }
+
+                        File.WriteAllText(portMapFilePath, JsonConvert.SerializeObject(fileData));
+
+
                     }
+
                 }
 
-                url = $"http://+:{portNumber}";
             }
+           
+
+          return $"http://+:{port}";
+          
         }
         private class PortMapFileData
         {
             public Dictionary<string, int> PortMap { get; set; }
-            public int MaxPortNumber { get; set; }
+            public int MaxPortNumber { get; set; } = 49152;
         }
     }
 

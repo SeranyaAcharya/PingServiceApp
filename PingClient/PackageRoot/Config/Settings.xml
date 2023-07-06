@@ -7,6 +7,6 @@
   </Section>
   -->
 	<Section Name="PingClientConfig">
-		<Parameter Name="PingFrequencyInSeconds" Value="5" />
+		<Parameter Name="PingFrequencyInSeconds" Value="1" />
 	</Section>
 </Settings>
