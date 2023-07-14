@@ -69,6 +69,8 @@ namespace PingService
                                 SavePortMapToFile();
                             }
                         }*/
+                     
+                     /**//*SavePortMapToFile($"{serviceContext.PartitionId.ToString()}")*/
 
                         ServiceEventSource.Current.ServiceMessage(serviceContext, $"Starting Kestrel on {url}");
 
@@ -85,7 +87,6 @@ namespace PingService
                         
                         // Add services to the container.
                         builder.Services.AddControllersWithViews();
-
                         var app = builder.Build();
                         
                         // Configure the HTTP request pipeline.
@@ -138,38 +139,39 @@ namespace PingService
         private string SavePortMapToFile(string key)
         {
             int port = 49152;
-            lock(portMapLock)
+            lock (portMapLock)
             {
-                using (FileStream fileStream = new FileStream(portMapFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+                PortMapFileData fileData;
+                if (File.Exists(portMapFilePath))
                 {
+                    fileData = JsonConvert.DeserializeObject<PortMapFileData>(File.ReadAllText(portMapFilePath));
+                }
+                else
+                {
+                    fileData = new PortMapFileData()
                     {
-                        fileStream.Lock(0, fileStream.Length);
-                        // Acquire an exclusive lock on the file
-                        // Read the contents of the file
-                        string contents = File.ReadAllText(portMapFilePath);
-                        PortMapFileData fileData = JsonConvert.DeserializeObject<PortMapFileData>(contents);
-                        if (fileData.PortMap.ContainsKey(key))
-                        {
-                            port = fileData.PortMap[key];
-                        }
-                        else
-                        {
-                            fileData.PortMap[key] = fileData.MaxPortNumber + 1;
-                            fileData.MaxPortNumber = fileData.MaxPortNumber + 1;
-                            port = fileData.PortMap[key];
-                        }
-
-                        File.WriteAllText(portMapFilePath, JsonConvert.SerializeObject(fileData));
-
-
-                    }
-
+                        MaxPortNumber = 49152,
+                        PortMap = new Dictionary<string, int>()
+                    };
                 }
 
-            }
-           
 
-          return $"http://+:{port}";
+
+                if (fileData.PortMap.ContainsKey(key))
+                {
+                    port = fileData.PortMap[key];
+                }
+                else
+                {
+                    fileData.PortMap[key] = fileData.MaxPortNumber + 1;
+                    fileData.MaxPortNumber = fileData.MaxPortNumber + 1;
+                    port = fileData.PortMap[key];
+                }
+                File.WriteAllText(portMapFilePath, JsonConvert.SerializeObject(fileData));
+
+
+            }
+            return $"http://+:{port}";
           
         }
         private class PortMapFileData
@@ -180,3 +182,4 @@ namespace PingService
     }
 
 }
+/*//SavePortMapToFile($"{serviceContext.PartitionId.ToString()}_{serviceContext.ReplicaId.ToString()}")*/

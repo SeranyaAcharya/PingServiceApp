@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Fabric;
 using System.Fabric.Description;
+using System.Fabric.Health;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
@@ -33,96 +34,88 @@ namespace PingClient
         protected override async Task RunAsync(CancellationToken cancellationToken)
         {
             var client = new System.Fabric.FabricClient();
-            Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService");
-            long currPartitionKey = GetRandomPartitionKey();
-            var filter = new ServiceNotificationFilterDescription()
-            {
-                Name = new Uri("fabric:/PingServiceApp/PingService"),
-                MatchNamePrefix = true,
-            };
-            client.ServiceManager.ServiceNotificationFilterMatched += async (s, e) =>
-            {
-                var castedEventArgs = (System.Fabric.FabricClient.ServiceManagementClient.ServiceNotificationEventArgs)e;
+            //loop chalao
 
-                var notification = castedEventArgs.Notification;
-                Console.WriteLine(
-                    "[{0}] received notification for service '{1}'",
-                    DateTime.UtcNow,
-                    notification.ServiceName);
-
-            };
             int pingFrequency = GetPingFrequencyFromConfig();
-            TimeSpan delayBetweenPings = TimeSpan.FromSeconds(1.0 / pingFrequency);
-            var filterId = client.ServiceManager.RegisterServiceNotificationFilterAsync(filter).Result;
-            HttpClient httpClient = new HttpClient();
-
-            /*while (!cancellationToken.IsCancellationRequested)*/
-            //{
-                ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(currPartitionKey),
-                        CancellationToken.None);//does it give you empty list
-                resolvedEndpoints = partition.Endpoints.ToList();
-                bool allEndpointsStale = true;
-                foreach (var resolvedEndpoint in resolvedEndpoints)
+                TimeSpan delayBetweenPings = TimeSpan.FromSeconds(1.0 / pingFrequency);
+                
+                HttpClient httpClient = new HttpClient();
+            
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    string httpEndpoint = "";
-                    try
+                long i = random.Next(0, 100);
+                /*if (i == 100) break;*/
+                Uri myServiceUri = new Uri("fabric:/PingServiceApp/PingService"+i);
+                /*i++;*/
+                    long currPartitionKey = GetRandomPartitionKey();
+                    ResolvedServicePartition partition = await servicePartitionResolver.ResolveAsync(myServiceUri, new ServicePartitionKey(currPartitionKey),
+                            CancellationToken.None);//does it give you empty list
+                    resolvedEndpoints = partition.Endpoints.ToList();
+                    bool allEndpointsStale = true;
+                    foreach (var resolvedEndpoint in resolvedEndpoints)
                     {
-                        // Parse the JSON string
-                        var jsonDocument = JsonDocument.Parse(resolvedEndpoint.Address);
-
-                        // Get the "Endpoints" property
-                        if (jsonDocument.RootElement.TryGetProperty("Endpoints", out var endpointsProperty))
+                        string httpEndpoint = "";
+                        try
                         {
-                            // Get the inner JSON object with the empty key
-                            if (endpointsProperty.TryGetProperty("", out var endpointProperty))
+                            // Parse the JSON string
+                            var jsonDocument = JsonDocument.Parse(resolvedEndpoint.Address);
+
+                            // Get the "Endpoints" property
+                            if (jsonDocument.RootElement.TryGetProperty("Endpoints", out var endpointsProperty))
                             {
-                                // Get the HTTP endpoint value
-                                httpEndpoint = endpointProperty.GetString();
+                                // Get the inner JSON object with the empty key
+                                if (endpointsProperty.TryGetProperty("", out var endpointProperty))
+                                {
+                                    // Get the HTTP endpoint value
+                                    httpEndpoint = endpointProperty.GetString();
 
-                                // Use the httpEndpoint value as needed
+                                    // Use the httpEndpoint value as needed
 
+                                }
                             }
                         }
-                    }
-                    catch (JsonException)
-                    {
-                        // Handle JSON parsing error
-                    }
-
-                    try
-                    {
-                    //what if null
-                    string s = httpEndpoint;
-                        HttpResponseMessage response = await httpClient.GetAsync(httpEndpoint);
-
-                        if (!response.IsSuccessStatusCode)
+                        catch (JsonException)
                         {
-                            allEndpointsStale = false;
-                            break;
+                            // Handle JSON parsing error
                         }
+
+                        try
+                        {
+                            //what if null
+                            string s = httpEndpoint;
+                            HttpResponseMessage response = await httpClient.GetAsync(httpEndpoint);
+
+                            if (response.IsSuccessStatusCode)
+                            {
+                                allEndpointsStale = false;
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            //which exception
+                            continue;
+                        }
+
                     }
-                    catch (Exception ex)
+                    Guid currGuid = partition.Info.Id;
+                    PartitionHealth partitionHealth = client.HealthManager.GetPartitionHealthAsync(currGuid).Result;
+                    //if partitions are getting destabilised then also forced refresh
+                    if (allEndpointsStale && partitionHealth.AggregatedHealthState == System.Fabric.Health.HealthState.Ok)
                     {
-                        //which exception
-                        break;
+                        partition = await servicePartitionResolver.ResolveAsync(partition,
+                                CancellationToken.None);
+
+                        resolvedEndpoints.Clear();
+                        resolvedEndpoints = partition.Endpoints.ToList();
                     }
+                    await Task.Delay(delayBetweenPings, cancellationToken);
 
                 }
-                //if partitions are getting destabilised then also forced refresh
-                /*if(allEndpointsStale)*/
-                /*{*/
-                   /* partition = await servicePartitionResolver.ResolveAsync(partition,
-                            CancellationToken.None);
+                httpClient.Dispose();
 
-                    resolvedEndpoints.Clear();
-                    resolvedEndpoints = partition.Endpoints.ToList();*/
-                //}
-                await Task.Delay(delayBetweenPings, cancellationToken);
-
-            //}
-            httpClient.Dispose();
-
-            client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();
+                /*client.ServiceManager.UnregisterServiceNotificationFilterAsync(filterId).Wait();*/
+            
 
         }
 
@@ -144,10 +137,27 @@ namespace PingClient
 
             if (int.TryParse(pingFrequencyValue, out int pingFrequency)) { return pingFrequency; }
 
-            else return 1;
+            else return 10;
 
         }
 
     }
 
 }
+/*var filter = new ServiceNotificationFilterDescription()
+            {
+                Name = myServiceUri,
+                MatchNamePrefix = true,
+            };
+            client.ServiceManager.ServiceNotificationFilterMatched += async (s, e) =>
+            {
+                var castedEventArgs = (System.Fabric.FabricClient.ServiceManagementClient.ServiceNotificationEventArgs)e;
+
+                var notification = castedEventArgs.Notification;
+                Console.WriteLine(
+                    "[{0}] received notification for service '{1}'",
+                    DateTime.UtcNow,
+                    notification.ServiceName);
+
+            };
+            var filterId = client.ServiceManager.RegisterServiceNotificationFilterAsync(filter).Result;*/
